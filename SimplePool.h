@@ -1,4 +1,4 @@
-#ifndef SIMPLEPOLL_H
+#ifndef SIMPLEPOOL_H
 #define SIMPLEPOOL_H
 
 #include <vector>
@@ -10,7 +10,7 @@
  */
 
 template <typename T>
-class SimplePool /* noncopyable */
+class SimplePool
 {
 public:
     SimplePool(
@@ -21,7 +21,7 @@ public:
     }
 
     T*
-    Allocate()
+    Allocate() //TODO: implement randomization
     {
         std::vector<bool>::iterator iter = std::find(myPoolAvailability.begin(), myPoolAvailability.end(), false);
 

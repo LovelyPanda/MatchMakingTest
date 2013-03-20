@@ -7,22 +7,22 @@
 #pragma intrinsic(_InterlockedExchange)
 #pragma intrinsic(_InterlockedCompareExchange)
 
-	class Mutex
-	{
-	public:
+    class Mutex
+    {
+    public:
 
-		Mutex()
-			: mySpinLock(0)
-		{
-		}
+        Mutex()
+            : mySpinLock(0)
+        {
+        }
 
-		~Mutex()
-		{
-		}
+        ~Mutex()
+        {
+        }
 
-		void
-		Lock() //optimized not to make unnecessary bus locks. Still it is not starvation-free. I would prefer some primitives from OS-SDKs.
-		{
+        void
+        Lock() //optimized not to make unnecessary bus locks. Still it is not starvation-free. I would prefer some primitives from OS-SDKs.
+        {
             while(true)
             {
                 //first we check the value in memory (by simple read)
@@ -41,43 +41,43 @@
                 //lets switch context because we need to wait for lock
                 Sleep(0);
             }
-		}
+        }
 
-		void 
-		Unlock()
-		{
+        void 
+        Unlock()
+        {
             if(mySpinLock) //we don't want to lock the bus every time
-			    _InterlockedExchange(&mySpinLock, 0);
-		}
+                _InterlockedExchange(&mySpinLock, 0);
+        }
 
-		volatile long mySpinLock; // I am not sure about LONG size on 64-bit platform, that's why I decided to use better (more explicit and cross-platform) data type.
-	};
+        volatile long mySpinLock; // I am not sure about LONG size on 64-bit platform, that's why I decided to use better (more explicit and cross-platform) data type.
+    };
 
     //perfect place for template (in case we are going to have few different locks which is normally the case)
 
     template <typename MUTEX>
-	class LockGuard
-	{
-	public:
+    class LockGuard
+    {
+    public:
 
-		LockGuard(
-			MUTEX*	aLock)
-			: myLock(aLock)
-		{
-			myLock->Lock(); 
-		}
+        LockGuard(
+            MUTEX*    aLock)
+            : myLock(aLock)
+        {
+            myLock->Lock(); 
+        }
 
-		LockGuard(
-			MUTEX&	aLock)
-			: myLock(&aLock)
-		{
-			myLock->Lock(); 
-		}
+        LockGuard(
+            MUTEX&    aLock)
+            : myLock(&aLock)
+        {
+            myLock->Lock(); 
+        }
 
-		~LockGuard()
-		{
-			myLock->Unlock();  
-		}
+        ~LockGuard()
+        {
+            myLock->Unlock();  
+        }
 
     private:
         //let's make it uncopyable
@@ -87,8 +87,8 @@
         operator=(
             const LockGuard&);
 
-		MUTEX*	myLock;
-	};
+        MUTEX*    myLock;
+    };
 
     typedef LockGuard<Mutex> MutexLock;
 

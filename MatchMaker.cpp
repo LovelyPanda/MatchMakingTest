@@ -7,21 +7,23 @@
 
     MatchMaker* MatchMaker::ourInstance = 0;
 
-	MatchMaker::MatchMaker()
-		: myNumPlayers(0)
-	{
-	}
+    MatchMaker::MatchMaker()
+        : myNodePool(20000), //~6 MB
+          //myPointPool(200000), //16 MB
+          myPartitioningTree(myNodePool)
+    {
+    }
 
-	MatchMaker::~MatchMaker()
-	{
-	}
+    MatchMaker::~MatchMaker()
+    {
+    }
 
-	MatchMaker&
-	MatchMaker::GetInstance()
-	{
-		if(!ourInstance) ourInstance = new MatchMaker(); 
-	    return *ourInstance; 
-	}
+    MatchMaker&
+    MatchMaker::GetInstance()
+    {
+        if(!ourInstance) ourInstance = new MatchMaker(); 
+        return *ourInstance; 
+    }
 
     void
     MatchMaker::RemoveInstance()
@@ -30,219 +32,311 @@
         ourInstance = 0;
     }
 
-	bool
-	MatchMaker::AddUpdatePlayer(
-		unsigned int	aPlayerId, 
-		float			aPreferenceVector[20])
-	{
-		MutexLock lock(myLock); 
+    bool
+    MatchMaker::AddUpdatePlayer(
+        unsigned int    aPlayerId, 
+        float           aPreferenceVector[20])
+    {
+        MutexLock lock(myLock); 
 
-		for(unsigned int i = 0; i < myNumPlayers; i++)
-		{
-			if(myPlayers[i]->myPlayerId == aPlayerId)
-			{
-				Player* t = new Player(); 
-				t->myPlayerId = myPlayers[i]->myPlayerId; 
-				t->myIsAvailable = myPlayers[i]->myIsAvailable; 
-				for(int j = 0; j < 20; j++)
-					t->myPreferenceVector[j] = aPreferenceVector[j]; 
+        /*
+        for(unsigned int i = 0; i < myNumPlayers; i++)
+        {
+            if(myPlayers[i]->myPlayerId == aPlayerId)
+            {
+                Player* t = new Player(); 
+                t->myPlayerId = myPlayers[i]->myPlayerId; 
+                t->myIsAvailable = myPlayers[i]->myIsAvailable; 
+                for(int j = 0; j < 20; j++)
+                    t->myPreferenceVector[j] = aPreferenceVector[j]; 
 
-				delete myPlayers[i]; 
-				myPlayers[i] = t; 
+                delete myPlayers[i]; 
+                myPlayers[i] = t; 
 
-				return true; 
-			}
-		}
+                return true; 
+            }
+        }
 
-		if(myNumPlayers == MAX_NUM_PLAYERS)
-			return false; 
+        if(myNumPlayers == MAX_NUM_PLAYERS)
+            return false; 
 
-		myPlayers[myNumPlayers] = new Player(); 
-		myPlayers[myNumPlayers]->myPlayerId = aPlayerId; 
-		for(int i = 0; i < 20; i++)
-			myPlayers[myNumPlayers]->myPreferenceVector[i] = aPreferenceVector[i]; 
-		myPlayers[myNumPlayers]->myIsAvailable = false; 
+        myPlayers[myNumPlayers] = new Player(); 
+        myPlayers[myNumPlayers]->myPlayerId = aPlayerId; 
+        for(int i = 0; i < 20; i++)
+            myPlayers[myNumPlayers]->myPreferenceVector[i] = aPreferenceVector[i]; 
+        myPlayers[myNumPlayers]->myIsAvailable = false; 
 
-		myNumPlayers++; 
+        myNumPlayers++; 
 
-		if(myNumPlayers % 100 == 0)
-			printf("num players in system %u\n", myNumPlayers); 
+        if(myNumPlayers % 100 == 0)
+            printf("num players in system %u\n", myNumPlayers); 
+            */
 
-		return true; 
-	}
+        //check for player presence
+        HashMap::iterator iter = myPlayers.find(aPlayerId);
 
-	bool
-	MatchMaker::SetPlayerAvailable(
-		unsigned int	aPlayerId)
-	{
-		MutexLock lock(myLock); 
+        if(iter == myPlayers.end())
+        {
+            //add new player
+            Player& newPlayer = myPlayers[aPlayerId];
+            newPlayer.myPlayerId = aPlayerId;
 
-		for(unsigned int i = 0; i < myNumPlayers; i++)
-		{
-			if(myPlayers[i]->myPlayerId == aPlayerId)
-			{
-				Player* t = new Player(); 
-				t->myPlayerId = myPlayers[i]->myPlayerId; 
-				t->myIsAvailable = true; 
-				for(int j = 0; j < 20; j++)
-					t->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
+            newPlayer.myPreferenceVector = aPreferenceVector;
 
-				delete myPlayers[i]; 
-				myPlayers[i] = t; 
+            //add new point to space partitioning tree
+            myPartitioningTree.AddPoint(&newPlayer.myPreferenceVector);
+        }
+        else
+        {
+            //update player's preferences
+            Point<PLAYER_PREFERENCES_NUM> oldPreferences = iter->second.myPreferenceVector;
+            iter->second.myPreferenceVector = aPreferenceVector;
 
-				return true; 
-			}
-		}
+            //remove old point and insert the new one
+            myPartitioningTree.RemovePoint(&oldPreferences);
+            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector);
+        }
 
-		return false; 
-	}
+        if(myPlayers.size() % 100 == 0)
+            printf("num players in system %u\n", myPlayers.size());
 
-	bool
-	MatchMaker::SetPlayerUnavailable(
-		unsigned int	aPlayerId)
-	{
-		MutexLock lock(myLock); 
+        return true; 
+    }
 
-		for(unsigned int i = 0; i < myNumPlayers; i++)
-		{
-			if(myPlayers[i]->myPlayerId == aPlayerId)
-			{
-				Player* t = new Player(); 
-				t->myPlayerId = myPlayers[i]->myPlayerId; 
-				t->myIsAvailable = false; 
-				for(int j = 0; j < 20; j++)
-					t->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
+    bool
+    MatchMaker::SetPlayerAvailable(
+        unsigned int    aPlayerId)
+    {
+        MutexLock lock(myLock); 
 
-				delete myPlayers[i]; 
-				myPlayers[i] = t; 
+        /*
+        for(unsigned int i = 0; i < myNumPlayers; i++)
+        {
+            if(myPlayers[i]->myPlayerId == aPlayerId)
+            {
+                Player* t = new Player(); 
+                t->myPlayerId = myPlayers[i]->myPlayerId; 
+                t->myIsAvailable = true; 
+                for(int j = 0; j < 20; j++)
+                    t->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
 
-				return true; 
-			}
-		}
+                delete myPlayers[i]; 
+                myPlayers[i] = t; 
 
-		return false; 
-	}
+                return true; 
+            }
+        }
 
-	float 
-	Dist(
-		float	aA[20], 
-		float	aB[20])
-	{
-		float dist = 0.0f; 
-		for(int i = 0; i < 20; i++)
-			dist += pow((aA[i] - aB[i]), 2.0f); 
+        return false; 
+        */
 
-		return sqrt(dist); 
-	}
+        //check for player presence
+        HashMap::iterator iter = myPlayers.find(aPlayerId);
 
-	class Matched
-	{
-	public:
+        if(iter == myPlayers.end())
+        {
+            return false;
+        }
+        else
+        {
+            //update player's availability
+            iter->second.myIsAvailable = true;
 
-		float			myDist; 
-		unsigned int	myId; 
-	};
+            //add point
+            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector);
 
-	static int 
-	MatchComp(
-		Matched*	aA, 
-		Matched*	aB)
-	{
-		if(aA->myDist < aB->myDist)
-			return 1; 
+            return true;
+        }
+    }
 
-		return 0; 
-	}
+    bool
+    MatchMaker::SetPlayerUnavailable(
+        unsigned int    aPlayerId)
+    {
+        MutexLock lock(myLock); 
 
-	bool
-	MatchMaker::MatchMake(
-		unsigned int	aPlayerId, 
-		unsigned int	aPlayerIds[20], 
-		int&			aOutNumPlayerIds)
-	{
-		MutexLock lock(myLock); 
+        /*
+        for(unsigned int i = 0; i < myNumPlayers; i++)
+        {
+            if(myPlayers[i]->myPlayerId == aPlayerId)
+            {
+                Player* t = new Player(); 
+                t->myPlayerId = myPlayers[i]->myPlayerId; 
+                t->myIsAvailable = false; 
+                for(int j = 0; j < 20; j++)
+                    t->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
 
-		Player* playerToMatch = NULL; 
-		for(unsigned int i = 0; i < myNumPlayers; i++)
-		{
-			if(myPlayers[i]->myPlayerId == aPlayerId)
-			{
-				playerToMatch					= new Player();
-				playerToMatch->myPlayerId		= myPlayers[i]->myPlayerId;
-				playerToMatch->myIsAvailable	= myPlayers[i]->myIsAvailable; 
-				for(int j = 0; j < 20; j++)
-					playerToMatch->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
+                delete myPlayers[i]; 
+                myPlayers[i] = t; 
 
-				break; 
-			}
-		}
+                return true; 
+            }
+        }
+        
+        return false; 
+        */
 
-		if(!playerToMatch)
-			return false; 
+        //check for player presence
+        HashMap::iterator iter = myPlayers.find(aPlayerId);
 
-		Matched** matched = new Matched*[20]; 
-		for(unsigned int i = 0; i < 20; i++)
-		{
-			matched[i]			= new Matched(); 
-			matched[i]->myDist	= -1.0f; 
-			matched[i]->myId	= -1; 
-		}
+        if(iter == myPlayers.end())
+        {
+            return false;
+        }
+        else
+        {
+            //update player's availability
+            iter->second.myIsAvailable = false;
 
-		int matchCount = 0; 
+            //remove old point (we don't want to find offline users during MM)
+            myPartitioningTree.RemovePoint(&iter->second.myPreferenceVector);
 
-		for(unsigned int i = 0; i < myNumPlayers; i++)
-		{
-			if(matchCount < 20)
-			{
-				matched[matchCount]->myId	= myPlayers[i]->myPlayerId; 
-				matched[matchCount]->myDist	= Dist(myPlayers[i]->myPreferenceVector, playerToMatch->myPreferenceVector);
-				matchCount++; 
+            return true;
+        }
+    }
 
-				using std::sort; 
-				sort(matched, matched + matchCount, MatchComp);
+    float 
+    Dist(
+        float    aA[20], 
+        float    aB[20])
+    {
+        float dist = 0.0f; 
+        for(int i = 0; i < 20; i++)
+            dist += pow((aA[i] - aB[i]), 2.0f); 
 
-				continue; 
-			}
+        return sqrt(dist); 
+    }
 
-			float dist = Dist(playerToMatch->myPreferenceVector, myPlayers[i]->myPreferenceVector); 
+    class Matched
+    {
+    public:
 
-			int index = -1; 
-			for(int j = 19; j >= 0; j--)
-			{
-				if(matched[j]->myDist < dist)
-					break; 
+        float            myDist; 
+        unsigned int    myId; 
+    };
 
-				index = j; 
-			}
+    static int 
+    MatchComp(
+        Matched*    aA, 
+        Matched*    aB)
+    {
+        if(aA->myDist < aB->myDist)
+            return 1; 
 
-			if(index == -1)
-				continue; 
+        return 0; 
+    }
 
-			if(!myPlayers[i]->myIsAvailable)
-				continue; 
+    bool
+    MatchMaker::MatchMake(
+        unsigned int    aPlayerId, 
+        unsigned int    aPlayerIds[20], 
+        int&            aOutNumPlayerIds)
+    {
+        MutexLock lock(myLock); 
 
-			for(int j = 19; j > index; j--)
-			{
-				matched[j]->myDist	= matched[j - 1]->myDist; 
-				matched[j]->myId	= matched[j - 1]->myId; 
-			}
+        //check for player presence
+        HashMap::iterator iter = myPlayers.find(aPlayerId);
 
-			matched[index]->myDist	= dist;
-			matched[index]->myId	= myPlayers[i]->myPlayerId; 
+        if(iter == myPlayers.end())
+        {
+            return false;
+        }
 
-			for(int j = 0; j < 20; j++)
-				aPlayerIds[j] = matched[j]->myId; 
-		}
 
-		aOutNumPlayerIds = matchCount; 
-		for(unsigned int j = 0; j < matchCount; j++)
-			aPlayerIds[j] = matched[j]->myId; 
+        std::pair<Point<PLAYER_PREFERENCES_NUM>*, unsigned int> usersFound[MATCHMAKE_PLAYERS_NUM];
+        
+        aOutNumPlayerIds = myPartitioningTree.FindNearestNeighbors(iter->second.myPreferenceVector, MATCHMAKE_PLAYERS_NUM, usersFound);
 
-		for(unsigned int i = 0; i < 20; i++)
-			delete matched[i]; 
-		delete [] matched; 
+        for(int i = 0; i < aOutNumPlayerIds; ++i)
+        {
+            aPlayerIds[i] = usersFound[i].second;
+        }
 
-		delete playerToMatch; 
+        return (aOutNumPlayerIds != 0);
 
-		return true; 
-	}
+        /*
+        Player* playerToMatch = NULL; 
+        for(unsigned int i = 0; i < myNumPlayers; i++)
+        {
+            if(myPlayers[i]->myPlayerId == aPlayerId)
+            {
+                playerToMatch                    = new Player();
+                playerToMatch->myPlayerId        = myPlayers[i]->myPlayerId;
+                playerToMatch->myIsAvailable    = myPlayers[i]->myIsAvailable; 
+                for(int j = 0; j < 20; j++)
+                    playerToMatch->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
+
+                break; 
+            }
+        }
+
+        if(!playerToMatch)
+            return false; 
+
+        Matched** matched = new Matched*[20]; 
+        for(unsigned int i = 0; i < 20; i++)
+        {
+            matched[i]            = new Matched(); 
+            matched[i]->myDist    = -1.0f; 
+            matched[i]->myId    = -1; 
+        }
+
+        int matchCount = 0; 
+
+        for(unsigned int i = 0; i < myNumPlayers; i++)
+        {
+            if(matchCount < 20)
+            {
+                matched[matchCount]->myId    = myPlayers[i]->myPlayerId; 
+                matched[matchCount]->myDist    = Dist(myPlayers[i]->myPreferenceVector, playerToMatch->myPreferenceVector);
+                matchCount++; 
+
+                using std::sort; 
+                sort(matched, matched + matchCount, MatchComp);
+
+                continue; 
+            }
+
+            float dist = Dist(playerToMatch->myPreferenceVector, myPlayers[i]->myPreferenceVector); 
+
+            int index = -1; 
+            for(int j = 19; j >= 0; j--)
+            {
+                if(matched[j]->myDist < dist)
+                    break; 
+
+                index = j; 
+            }
+
+            if(index == -1)
+                continue; 
+
+            if(!myPlayers[i]->myIsAvailable)
+                continue; 
+
+            for(int j = 19; j > index; j--)
+            {
+                matched[j]->myDist    = matched[j - 1]->myDist; 
+                matched[j]->myId    = matched[j - 1]->myId; 
+            }
+
+            matched[index]->myDist    = dist;
+            matched[index]->myId    = myPlayers[i]->myPlayerId; 
+
+            for(int j = 0; j < 20; j++)
+                aPlayerIds[j] = matched[j]->myId; 
+        }
+
+        aOutNumPlayerIds = matchCount; 
+        for(unsigned int j = 0; j < matchCount; j++)
+            aPlayerIds[j] = matched[j]->myId; 
+
+        for(unsigned int i = 0; i < 20; i++)
+            delete matched[i]; 
+        delete [] matched; 
+
+        delete playerToMatch; 
+
+        return true; 
+        */
+    }

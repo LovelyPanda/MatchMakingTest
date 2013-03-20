@@ -2,161 +2,186 @@
 
 #include "MatchMaker.h"
 
-	class QPTimer 
-	{
-	public: 
+class QPTimer 
+{
+public: 
 
-		QPTimer()
-		{
-			LARGE_INTEGER freq; 
-			QueryPerformanceFrequency(&freq); 
+    QPTimer()
+    {
+        LARGE_INTEGER freq; 
+        QueryPerformanceFrequency(&freq); 
 
-			myInvFreq = 1000000.0 / (double) freq.QuadPart; 
-		}
+        myInvFreq = 1000000.0 / (double) freq.QuadPart; 
+    }
 
-		void
-		Start()
-		{
-			QueryPerformanceCounter(&myStart); 
-		}
+    void
+        Start()
+    {
+        QueryPerformanceCounter(&myStart); 
+    }
 
-		// returns micro seconds
-		double
-		Get()
-		{
-			QueryPerformanceCounter(&myStop);
+    // returns micro seconds
+    double
+        Get()
+    {
+        QueryPerformanceCounter(&myStop);
 
-			double t = (double)(myStop.QuadPart - myStart.QuadPart) * myInvFreq;
+        double t = (double)(myStop.QuadPart - myStart.QuadPart) * myInvFreq;
 
-			myStart = myStop; 
+        myStart = myStop; 
 
-			return t; 
-		}
+        return t; 
+    }
 
-		LARGE_INTEGER myStart; 
-		LARGE_INTEGER myStop; 
-		double myInvFreq; 
-	};
+    //returns micro seconds without stop
+    double
+        Read()
+    {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
 
-	class ScopedQPTimer
-	{
-	public: 
+        return (double)(now.QuadPart - myStart.QuadPart) * myInvFreq;
+    }
 
-		ScopedQPTimer(
-			const char*		aMsg = NULL)
-		{
-			myMsg = aMsg; 
-			myTimer.Start(); 
-		}
+    LARGE_INTEGER myStart; 
+    LARGE_INTEGER myStop; 
+    double myInvFreq; 
+};
 
-		~ScopedQPTimer()
-		{
-			double used = myTimer.Get(); 
-			printf("%s %f\n", myMsg, used / 1000.0); 
-		}
+class ScopedQPTimer
+{
+public: 
 
-		QPTimer		myTimer; 
-		const char*	myMsg; 
-	}; 
+    ScopedQPTimer(
+        const char*        aMsg = NULL)
+    {
+        myMsg = aMsg; 
+        myTimer.Start(); 
+    }
 
-	#define USE_PREDICTABLE_RANDOMNESS
+    ~ScopedQPTimer()
+    {
+        double used = myTimer.Get(); 
+        printf("%s %f\n", myMsg, used / 1000.0); 
+    }
 
-	unsigned int 
-	RandomUInt32()
-	{
-	#ifdef USE_PREDICTABLE_RANDOMNESS
+    QPTimer        myTimer; 
+    const char*    myMsg; 
+}; 
 
-		return (((unsigned int) rand()) << 16) | rand(); 
+#define USE_PREDICTABLE_RANDOMNESS
 
-	#else
+unsigned int 
+    RandomUInt32()
+{
+#ifdef USE_PREDICTABLE_RANDOMNESS
 
-		// better random function 
-		unsigned int r; 
-		rand_s(&r);
-		return r; 
+    return (((unsigned int) rand()) << 16) | rand(); 
 
-	#endif
-	}
+#else
 
-	float 
-	RandomFloat32()
-	{
-		return (float) RandomUInt32() / (float) 0xFFFFFFFF; 
-	}
+    // better random function 
+    unsigned int r; 
+    rand_s(&r);
+    return r; 
+
+#endif
+}
+
+float 
+    RandomFloat32()
+{
+    return (float) RandomUInt32() / (float) 0xFFFFFFFF; 
+}
 
 namespace 
 {
-	void 
-	Run(
-		void*	aIgnore)
-	{
-		for(;;)
-		{
-			// add or update a random player to the system 
-			float preferenceVector[20]; 
-			for(int i = 0; i < 20; i++)
-				preferenceVector[i] = RandomFloat32(); 
+    void 
+        Run(
+        void*    aIgnore)
+    {
+        unsigned int matchmakingNum = 0;
+        double totalMatchmakingTime = 0.0;
 
-			unsigned int playerId = RandomUInt32() % 1000000; 
-			MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+        for(;;)
+        {
+            // add or update a random player to the system 
+            float preferenceVector[20]; 
+            for(int i = 0; i < 20; i++)
+                preferenceVector[i] = RandomFloat32(); 
 
-			// players goes on-line / off-line all the time 
-			if(RandomFloat32() < 0.05f)
-				MatchMaker::GetInstance().SetPlayerAvailable(playerId); 
-			else 
-				MatchMaker::GetInstance().SetPlayerUnavailable(playerId); 
+            unsigned int playerId = RandomUInt32() % 1000000; 
+            MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
 
-			// match make a player
-			unsigned int ids[20]; 
-			int numPlayers; 
+            // players goes on-line / off-line all the time 
+            if(RandomFloat32() < 0.05f)
+                MatchMaker::GetInstance().SetPlayerAvailable(playerId); 
+            else 
+                MatchMaker::GetInstance().SetPlayerUnavailable(playerId); 
 
-			ScopedQPTimer timer("matching time in milliseconds"); 
-			MatchMaker::GetInstance().MatchMake(playerId, ids, numPlayers); 
-		}
-	}
+            // match make a player
+            unsigned int ids[20]; 
+            int numPlayers; 
+
+            {
+                ScopedQPTimer timer("matching time in milliseconds"); 
+                MatchMaker::GetInstance().MatchMake(playerId, ids, numPlayers);
+                totalMatchmakingTime += timer.myTimer.Read();
+            }
+
+            if(++matchmakingNum > 10)
+            {
+                printf("average matchmaking time: %f\n", totalMatchmakingTime / 10000.0);
+
+                matchmakingNum = 0;
+                totalMatchmakingTime = 0.0;
+            }
+
+        }
+    }
 }
 
 class RequestThread 
 {
 public: 
 
-	RequestThread()
-	{
-	}
+    RequestThread()
+    {
+    }
 
-	~RequestThread()
-	{
-	}
+    ~RequestThread()
+    {
+    }
 
-	void 
-	Start()
-	{
-		_beginthread(Run, 0, NULL);
-	}
+    void 
+        Start()
+    {
+        _beginthread(Run, 0, NULL);
+    }
 };
 
 int main(int argc, char* argv[])
 {
-	MatchMaker::GetInstance(); 
+    MatchMaker::GetInstance(); 
 
-	// add 100000 players to the system before starting any request threads 
-	for(int i = 0; i < 100000; i++)
-	{
-		float preferenceVector[20]; 
-		for(int i = 0; i < 20; i++)
-			preferenceVector[i] = RandomFloat32(); 
+    // add 100000 players to the system before starting any request threads 
+    for(int i = 0; i < 100000; i++)
+    {
+        float preferenceVector[20]; 
+        for(int i = 0; i < 20; i++)
+            preferenceVector[i] = RandomFloat32(); 
 
-		unsigned int playerId = RandomUInt32() % 1000000; 
-		MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
-	}
+        unsigned int playerId = RandomUInt32() % 1000000; 
+        MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+    }
 
-	printf("starting worker threads\n"); 
+    printf("starting worker threads\n"); 
 
-	for(int i = 0; i < 16; i++)
-		(new RequestThread())->Start(); 
+    for(int i = 0; i < 16; i++)
+        (new RequestThread())->Start(); 
 
-	Sleep(-1); 
+    Sleep(-1); 
 
-	return 0;
+    return 0;
 }
 
