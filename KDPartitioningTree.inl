@@ -28,6 +28,9 @@ KDPartitioningTree<T, DIMENSION_NUM>::~KDPartitioningTree()
 
 namespace kdpartitiontree_impl
 {
+
+    //splits the provided node to form new subnodes filled with points from original node.
+    //depth parameter is used to determine how to split the node (along which axis)
     template <typename T, unsigned int DIMENSION_NUM>
     void
     SplitPartition(
@@ -63,13 +66,23 @@ namespace kdpartitiontree_impl
         for(size_t i = 0; i < node->myPointsNum; ++i)
         {
             typename KDPartitioningTree<T, DIMENSION_NUM>::Node* nodeToPutInto;
-            if(node->myPoints[i][dimension] < splitBorder)
+            if((*node->myPoints[i])[dimension] < splitBorder)
                 nodeToPutInto = node->myFirstChild;
             else
                 nodeToPutInto = node->mySecondChild;
 
-            //nodeToPutInto->myPoints[nodeToPutInto->myPointsNum] = 
+            //add point
+            nodeToPutInto->myPoints[nodeToPutInto->myPointsNum] = node->myPoints[i];
+            nodeToPutInto->myPointData[nodeToPutInto->myPointsNum] = node->myPointData[i];
+            ++nodeToPutInto->myPointsNum;
         }
+
+        node->myChildPointsNum = node->myPointsNum;
+        
+        //clear points
+        node->myPointsNum = 0;
+        memset(node->myPoints, 0, sizeof(node->myPoints));
+        memset(node->myPointData, 0, sizeof(node->myPointData));
     }
 
     //recursive add point
@@ -77,6 +90,7 @@ namespace kdpartitiontree_impl
     void
     RecursiveAddPoint(
         Point<DIMENSION_NUM>* newPoint,
+        T newPointData,
         typename KDPartitioningTree<T, DIMENSION_NUM>::Node* node,
         SimplePool<typename KDPartitioningTree<T, DIMENSION_NUM>::Node>& pool,
         unsigned int depth = 0)
@@ -85,23 +99,42 @@ namespace kdpartitiontree_impl
         {
             //leaf
 
-        }
-        else
-        {
-            //recursively go deeper
+            //check for space before addition
+            if(node->myPointsNum < node->MAX_POINTS_NUM)
+            {
+                //just add
+                node->myPoints[node->myPointsNum] = newPoint;
+                node->myPointData[node->myPointsNum] = newPointData;
+                ++node->myPointsNum;
 
-            //if(
-            //RecursiveAddPoint(newPoint, , pool, depth + 1);
+                return;
+            }
+            else
+            {
+                //split (point will be added later)
+                SplitPartition<T, DIMENSION_NUM>(node, pool, depth);
+            }
         }
+
+        //recursively go deeper
+        ++node->myChildPointsNum;
+
+        unsigned int dimension = depth % DIMENSION_NUM;
+        float splitBorder = (node->mySpaceUpperBoundaries[dimension] + node->mySpaceLowerBoundaries[dimension]) / 2.0f;
+
+        if((*newPoint)[dimension] < splitBorder)
+            RecursiveAddPoint<T, DIMENSION_NUM>(newPoint, newPointData, node->myFirstChild, pool, depth + 1);
+        else
+            RecursiveAddPoint<T, DIMENSION_NUM>(newPoint, newPointData, node->mySecondChild, pool, depth + 1);
     }
 
 }
 
 template <typename T, unsigned int DIMENSION_NUM>
 void 
-KDPartitioningTree<T, DIMENSION_NUM>::AddPoint(Point<DIMENSION_NUM>* newPoint)
+KDPartitioningTree<T, DIMENSION_NUM>::AddPoint(Point<DIMENSION_NUM>* newPoint, T newPointData)
 {
-    kdpartitiontree_impl::RecursiveAddPoint<T, DIMENSION_NUM>(newPoint, myRoot, myPool);
+    kdpartitiontree_impl::RecursiveAddPoint<T, DIMENSION_NUM>(newPoint, newPointData, myRoot, myPool);
 }
 
 template <typename T, unsigned int DIMENSION_NUM>

@@ -22,8 +22,10 @@ struct Point
     Point(
         float value)
     {
-        int intValue = *reinterpret_cast<int*>(&value);
-        memset(values, intValue, sizeof(values));
+        for(unsigned int i = 0; i < DIMENSION_NUM; ++i)
+        {
+            values[i] = value;
+        }
     }
 
     Point(
@@ -51,6 +53,16 @@ class KDPartitioningTree /* noncopyable */
 public:
     struct Node
     {
+        Node()
+            : myParent(0),
+              myFirstChild(0),
+              mySecondChild(0),
+              myPointsNum(0),
+              myChildPointsNum(0)
+        {
+
+        }
+
         Node* myParent;
 
         Node* myFirstChild;
@@ -81,7 +93,8 @@ public:
 
     //note that no point copies are created
     void AddPoint(
-        Point<DIMENSION_NUM>* newPoint);
+        Point<DIMENSION_NUM>* newPoint,
+        T newPointData);
 
     void RemovePoint(
         const Point<DIMENSION_NUM>* pointToRemove);

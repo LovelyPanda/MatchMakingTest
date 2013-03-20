@@ -10,6 +10,7 @@
     MatchMaker::MatchMaker()
         : myNodePool(20000), //~6 MB
           //myPointPool(200000), //16 MB
+          myPlayers(120000), 
           myPartitioningTree(myNodePool)
     {
     }
@@ -84,7 +85,7 @@
             newPlayer.myPreferenceVector = aPreferenceVector;
 
             //add new point to space partitioning tree
-            myPartitioningTree.AddPoint(&newPlayer.myPreferenceVector);
+            myPartitioningTree.AddPoint(&newPlayer.myPreferenceVector, aPlayerId);
         }
         else
         {
@@ -94,7 +95,7 @@
 
             //remove old point and insert the new one
             myPartitioningTree.RemovePoint(&oldPreferences);
-            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector);
+            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector, aPlayerId);
         }
 
         if(myPlayers.size() % 100 == 0)
@@ -143,7 +144,7 @@
             iter->second.myIsAvailable = true;
 
             //add point
-            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector);
+            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector, aPlayerId);
 
             return true;
         }

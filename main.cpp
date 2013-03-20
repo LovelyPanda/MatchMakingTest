@@ -69,14 +69,14 @@ public:
     const char*    myMsg; 
 }; 
 
-#define USE_PREDICTABLE_RANDOMNESS
+//#define USE_PREDICTABLE_RANDOMNESS
 
 unsigned int 
     RandomUInt32()
 {
 #ifdef USE_PREDICTABLE_RANDOMNESS
 
-    return (((unsigned int) rand()) << 16) | rand(); 
+    return (((unsigned int) rand()) << 16) | rand(); // I think this code is wrong. Results have strange ranges.
 
 #else
 
