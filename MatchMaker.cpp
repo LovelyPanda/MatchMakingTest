@@ -3,15 +3,16 @@
 #include "MatchMaker.h"
 
 #include <algorithm>
-#include <math.h>
+//#include <math.h>
+
+#include <mmintrin.h>
+#include <cassert>
 
     MatchMaker* MatchMaker::ourInstance = 0;
 
     MatchMaker::MatchMaker()
-        : myNodePool(20000), //~6 MB
-          //myPointPool(200000), //16 MB
-          myPlayers(120000), 
-          myPartitioningTree(myNodePool)
+        : myOnlinePlayersNum(0),
+          myPlayerMap(1000000) ///!!???
     {
     }
 
@@ -39,6 +40,35 @@
         float           aPreferenceVector[20])
     {
         MutexLock lock(myLock); 
+
+        PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
+
+        if(iter == myPlayerMap.end())
+        {
+            if(myPlayerMap.size() >= MAX_NUM_PLAYERS)
+                return false;
+
+            //add new
+            PlayerData newPlayer;
+            newPlayer.myIsAvailable = false;
+            newPlayer.myOnlinePosition = -1;
+            memcpy(newPlayer.myPreferences, aPreferenceVector, sizeof(newPlayer.myPreferences));
+
+            myPlayerMap[aPlayerId] = newPlayer;
+
+            return true;
+        }
+
+        //update existing player
+        PlayerData& player = iter->second;
+        // 1) update hashmap
+        memcpy(player.myPreferences, aPreferenceVector, sizeof(player.myPreferences));
+
+        // 2) for user which is 'online' we need to update some more data
+        if(player.myIsAvailable)
+        {
+            memcpy(myOnlinePlayersPreferences[player.myOnlinePosition].data, aPreferenceVector, sizeof(player.myPreferences));
+        }
 
         /*
         for(unsigned int i = 0; i < myNumPlayers; i++)
@@ -73,35 +103,7 @@
             printf("num players in system %u\n", myNumPlayers); 
             */
 
-        //check for player presence
-        HashMap::iterator iter = myPlayers.find(aPlayerId);
-
-        if(iter == myPlayers.end())
-        {
-            //add new player
-            Player& newPlayer = myPlayers[aPlayerId];
-            newPlayer.myPlayerId = aPlayerId;
-
-            newPlayer.myPreferenceVector = aPreferenceVector;
-
-            //add new point to space partitioning tree
-            myPartitioningTree.AddPoint(&newPlayer.myPreferenceVector, aPlayerId);
-        }
-        else
-        {
-            //update player's preferences
-            Point<PLAYER_PREFERENCES_NUM> oldPreferences = iter->second.myPreferenceVector;
-            iter->second.myPreferenceVector = aPreferenceVector;
-
-            //remove old point and insert the new one
-            myPartitioningTree.RemovePoint(&oldPreferences);
-            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector, aPlayerId);
-        }
-
-        if(myPlayers.size() % 100 == 0)
-            printf("num players in system %u\n", myPlayers.size());
-
-        return true; 
+        return true;
     }
 
     bool
@@ -109,6 +111,38 @@
         unsigned int    aPlayerId)
     {
         MutexLock lock(myLock); 
+
+        //find player
+        PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
+
+        if(iter == myPlayerMap.end())
+        {
+            return false; //no such player
+        }
+
+        PlayerData& player = iter->second;
+
+        //already marked as on-line
+        if(player.myIsAvailable) 
+            return true;
+
+        //add player preferences to array of on-line players
+        unsigned int newOnlinePosition = myOnlinePlayersNum;
+
+        if(myOnlinePlayersNum > MAX_ONLINE_PLAYERS)
+            return false;
+
+        //copy preferences
+        memcpy(myOnlinePlayersPreferences[newOnlinePosition].data, player.myPreferences, sizeof(player.myPreferences));
+
+        ++myOnlinePlayersNum;
+        player.myOnlinePosition = newOnlinePosition;
+
+        myOnlinePlayersPrefencesToIdsMap[newOnlinePosition] = aPlayerId;
+
+        player.myIsAvailable = true;
+
+        return true;
 
         /*
         for(unsigned int i = 0; i < myNumPlayers; i++)
@@ -131,23 +165,7 @@
         return false; 
         */
 
-        //check for player presence
-        HashMap::iterator iter = myPlayers.find(aPlayerId);
-
-        if(iter == myPlayers.end())
-        {
-            return false;
-        }
-        else
-        {
-            //update player's availability
-            iter->second.myIsAvailable = true;
-
-            //add point
-            myPartitioningTree.AddPoint(&iter->second.myPreferenceVector, aPlayerId);
-
-            return true;
-        }
+      return true;
     }
 
     bool
@@ -155,6 +173,44 @@
         unsigned int    aPlayerId)
     {
         MutexLock lock(myLock); 
+
+        //find player
+        PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
+
+        if(iter == myPlayerMap.end())
+        {
+            return false; //no such player
+        }
+
+        PlayerData& player = iter->second;
+
+        //already marked as off-line
+        if(!player.myIsAvailable)
+            return true;
+
+        //remove player preferences from array of on-line players
+        unsigned int onlinePosition = player.myOnlinePosition;
+
+        //swap the last one with the one we are going to remove
+        if(onlinePosition < myOnlinePlayersNum - 1)
+        {
+            Vector20f& lastPreferenceVector = myOnlinePlayersPreferences[myOnlinePlayersNum - 1];
+            memcpy(myOnlinePlayersPreferences[onlinePosition].data, lastPreferenceVector.data, sizeof(lastPreferenceVector.data));
+
+            PlayerId lastPlayerId = myOnlinePlayersPrefencesToIdsMap[myOnlinePlayersNum - 1];
+            PlayerData& lastPlayer = myPlayerMap[lastPlayerId];
+            lastPlayer.myOnlinePosition = onlinePosition;
+
+            myOnlinePlayersPrefencesToIdsMap[myOnlinePlayersNum - 1] = -1;
+            myOnlinePlayersPrefencesToIdsMap[onlinePosition] = lastPlayerId;
+        }
+
+        --myOnlinePlayersNum;
+
+        player.myOnlinePosition = -1;
+        player.myIsAvailable = false;
+
+        return true;
 
         /*
         for(unsigned int i = 0; i < myNumPlayers; i++)
@@ -176,24 +232,6 @@
         
         return false; 
         */
-
-        //check for player presence
-        HashMap::iterator iter = myPlayers.find(aPlayerId);
-
-        if(iter == myPlayers.end())
-        {
-            return false;
-        }
-        else
-        {
-            //update player's availability
-            iter->second.myIsAvailable = false;
-
-            //remove old point (we don't want to find offline users during MM)
-            myPartitioningTree.RemovePoint(&iter->second.myPreferenceVector);
-
-            return true;
-        }
     }
 
     float 
@@ -203,10 +241,11 @@
     {
         float dist = 0.0f; 
         for(int i = 0; i < 20; i++)
-            dist += pow((aA[i] - aB[i]), 2.0f); 
-
-        return sqrt(dist); 
+            dist += (aA[i] - aB[i]) * (aA[i] - aB[i]); 
+        return dist;
+        //return sqrt(dist); 
     }
+
 
     class Matched
     {
@@ -227,6 +266,38 @@
         return 0; 
     }
 
+    static inline float SquareDistance(__m128 vec1[5], __m128 vec2[5])
+    {
+        __m128 tempVec[5];
+
+        //first subtract
+        for(int i = 0; i < 5; ++i)
+        {
+            tempVec[i] = _mm_sub_ps(vec1[i], vec2[i]);
+        }
+
+        //squared
+        for(int i = 0; i < 5; ++i)
+        {
+            tempVec[i] = _mm_mul_ps(tempVec[i], tempVec[i]);
+        }
+
+        //sum
+        tempVec[0] = _mm_add_ps(tempVec[0], tempVec[1]);
+        tempVec[1] = _mm_add_ps(tempVec[3], tempVec[4]);
+
+        //3 m128s left
+        tempVec[0] = _mm_add_ps(tempVec[0], tempVec[1]);
+        
+        //2 m128s left
+        tempVec[0] = _mm_add_ps(tempVec[0], tempVec[2]);
+
+
+        //1 left, just sum
+        return tempVec[0].m128_f32[0] + tempVec[0].m128_f32[1] +
+               tempVec[0].m128_f32[2] + tempVec[0].m128_f32[3];
+    }
+
     bool
     MatchMaker::MatchMake(
         unsigned int    aPlayerId, 
@@ -235,25 +306,77 @@
     {
         MutexLock lock(myLock); 
 
-        //check for player presence
-        HashMap::iterator iter = myPlayers.find(aPlayerId);
+        aOutNumPlayerIds = 0;
 
-        if(iter == myPlayers.end())
+        //find player
+        PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
+
+        if(iter == myPlayerMap.end())
         {
-            return false;
+            return false; //no such player
         }
 
-
-        std::pair<Point<PLAYER_PREFERENCES_NUM>*, unsigned int> usersFound[MATCHMAKE_PLAYERS_NUM];
-        
-        aOutNumPlayerIds = myPartitioningTree.FindNearestNeighbors(iter->second.myPreferenceVector, MATCHMAKE_PLAYERS_NUM, usersFound);
-
-        for(int i = 0; i < aOutNumPlayerIds; ++i)
+        //if we don't have enough on-line players, just return available
+        if(myOnlinePlayersNum <= 21)
         {
-            aPlayerIds[i] = usersFound[i].second;
+            if(myOnlinePlayersNum == 1)
+                return false;
+
+            for(unsigned int i = 0, j = 0; i < myOnlinePlayersNum; ++i)
+            {
+                if(myOnlinePlayersPrefencesToIdsMap[i] != aPlayerId)
+                {
+                    aPlayerIds[j++] = myOnlinePlayersPrefencesToIdsMap[i];
+                }
+            }
+
+            aOutNumPlayerIds =  myOnlinePlayersNum - 1;
+            return true;
         }
 
-        return (aOutNumPlayerIds != 0);
+        PlayerData& player = iter->second;
+
+        Vector20f vector;
+        memcpy(vector.data, player.myPreferences, sizeof(player.myPreferences));
+
+        //among the other points there will be ourselves that's why we have 21 entries
+        float shortestDistances[21] = { 100000.0f };
+        float maxDistance = 1000000.0f;
+        unsigned int maxDistancePosition = 0;
+        unsigned int closestPlayersIndexes[21] = { 0 };
+
+        for(unsigned int i = 0; i < myOnlinePlayersNum; ++i)
+        {
+            float dist = SquareDistance(vector.data, myOnlinePlayersPreferences[i].data);
+            
+            if(dist < maxDistance)
+            {
+                shortestDistances[maxDistancePosition] = dist;
+                closestPlayersIndexes[maxDistancePosition] = i;
+
+                //find new max distance
+                float* maxElementPtr = std::max_element(shortestDistances, shortestDistances + 20);
+                maxDistance = *maxElementPtr;
+                maxDistancePosition = maxElementPtr - shortestDistances;
+            }
+
+            //float diff = dist - Dist(vector.data->m128_f32, myOnlinePlayersPreferences[i].data->m128_f32);
+            //assert(diff < 0.001f && diff > -0.001f);
+
+        }
+
+        //exclude ourselves and save result
+        for(int i = 0, j = 0; i < 21; ++i)
+        {
+            if(myOnlinePlayersPrefencesToIdsMap[closestPlayersIndexes[i]] != aPlayerId)
+            {
+                aPlayerIds[j] = myOnlinePlayersPrefencesToIdsMap[closestPlayersIndexes[i]];
+
+                ++j;
+            }
+        }
+
+        return true;
 
         /*
         Player* playerToMatch = NULL; 

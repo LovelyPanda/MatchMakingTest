@@ -2,12 +2,13 @@
 #define MATCHMAKER_H
 
 #define MAX_NUM_PLAYERS (1000000)
-#define PLAYER_PREFERENCES_NUM (20)
-#define MATCHMAKE_PLAYERS_NUM (20)
+#define MAX_ONLINE_PLAYERS (MAX_NUM_PLAYERS / 10)
 
 #include "Mutex.h"
-#include "SimplePool.h"
-#include "KDPartitioningTree.h"
+
+//we are going to use SIMD extensions
+#include <xmmintrin.h>
+
 #include <unordered_map>
 
 class MatchMaker
@@ -35,28 +36,36 @@ public:
     void                RemoveInstance();
 private: 
 
-    // I don't care if you change anything below this 
+   Mutex                myLock; 
 
-    struct Player 
-    {
-        unsigned int    myPlayerId; 
-        Point<PLAYER_PREFERENCES_NUM> myPreferenceVector;
-        bool            myIsAvailable; 
-    };
+   typedef unsigned int PlayerId;
 
-    Mutex                myLock; 
+   //to make the code more cache-friendly I am going to use data-oriented approach and eliminate the Player structure
+   //here is the preference vector that can be operated by SIMD instructions 
+   //(actually in our case the default alignment should be fine, but this way of declaration is more explicit)
+   struct Vector20f
+   {
+       __m128 data[5]; // 5 * 4 = 20
+   };
 
-    //int                    myNumPlayers; 
-    //Player*                myPlayers[MAX_NUM_PLAYERS]; 
+   Vector20f myOnlinePlayersPreferences[MAX_NUM_PLAYERS / 10]; //we assume that all the players at once can not be online
+   unsigned int myOnlinePlayersNum;
 
-    typedef std::unordered_map<unsigned int, Player>                 HashMap;
-    typedef KDPartitioningTree<unsigned int, PLAYER_PREFERENCES_NUM> PartitioningTree;
+   //map to retrieve player ids from position in online players preferences array
+   PlayerId myOnlinePlayersPrefencesToIdsMap[MAX_NUM_PLAYERS / 10];
 
-    SimplePool<PartitioningTree::Node>         myNodePool;
-    //SimplePool<Point<PLAYER_PREFERENCES_NUM> > myPointPool;
+   //we are not going to iterate through this data, so we can store it in struct for simplicity
+   //these structures will be stored in hashmap
+   struct PlayerData
+   {
+       bool myIsAvailable;
+       unsigned int myOnlinePosition;
+       float myPreferences[20];
+   };
 
-    HashMap          myPlayers;
-    PartitioningTree myPartitioningTree;
+   //map of all the players
+   typedef std::unordered_map<PlayerId, PlayerData> PlayerHashMap;
+   PlayerHashMap myPlayerMap;
 
     MatchMaker(); 
 

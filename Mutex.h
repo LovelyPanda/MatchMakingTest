@@ -14,15 +14,19 @@
         Mutex()
             : mySpinLock(0)
         {
+         //   InitializeCriticalSection(&criticalSection);
         }
 
         ~Mutex()
         {
+           // DeleteCriticalSection(&criticalSection);
         }
 
         void
         Lock() //optimized not to make unnecessary bus locks. Still it is not starvation-free. I would prefer some primitives from OS-SDKs.
         {
+        //    EnterCriticalSection(&criticalSection);
+            
             while(true)
             {
                 //first we check the value in memory (by simple read)
@@ -46,11 +50,13 @@
         void 
         Unlock()
         {
+            //LeaveCriticalSection(&criticalSection);
             if(mySpinLock) //we don't want to lock the bus every time
                 _InterlockedExchange(&mySpinLock, 0);
         }
 
         volatile long mySpinLock; // I am not sure about LONG size on 64-bit platform, that's why I decided to use better (more explicit and cross-platform) data type.
+        //CRITICAL_SECTION criticalSection;
     };
 
     //perfect place for template (in case we are going to have few different locks which is normally the case)
