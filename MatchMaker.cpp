@@ -316,10 +316,12 @@
             return false; //no such player
         }
 
+        unsigned int otherOnlineUsersNum = (iter->second.myIsAvailable) ? myOnlinePlayersNum - 1 : myOnlinePlayersNum;
+
         //if we don't have enough on-line players, just return available
-        if(myOnlinePlayersNum <= 21)
+        if(otherOnlineUsersNum <= 20)
         {
-            if(myOnlinePlayersNum == 1)
+            if(otherOnlineUsersNum == 0)
                 return false;
 
             for(unsigned int i = 0, j = 0; i < myOnlinePlayersNum; ++i)
@@ -330,7 +332,7 @@
                 }
             }
 
-            aOutNumPlayerIds =  myOnlinePlayersNum - 1;
+            aOutNumPlayerIds = otherOnlineUsersNum;
             return true;
         }
 
@@ -345,6 +347,11 @@
         unsigned int maxDistancePosition = 0;
         unsigned int closestPlayersIndexes[21] = { 0 };
 
+        for(unsigned int i = 0; i < 21; ++i)
+        {
+            shortestDistances[i] = 1000000.0f;
+        }
+
         for(unsigned int i = 0; i < myOnlinePlayersNum; ++i)
         {
             float dist = SquareDistance(vector.data, myOnlinePlayersPreferences[i].data);
@@ -355,26 +362,33 @@
                 closestPlayersIndexes[maxDistancePosition] = i;
 
                 //find new max distance
-                float* maxElementPtr = std::max_element(shortestDistances, shortestDistances + 20);
+                float* maxElementPtr = std::max_element(shortestDistances, shortestDistances + 21);
                 maxDistance = *maxElementPtr;
                 maxDistancePosition = maxElementPtr - shortestDistances;
             }
 
-            //float diff = dist - Dist(vector.data->m128_f32, myOnlinePlayersPreferences[i].data->m128_f32);
-            //assert(diff < 0.001f && diff > -0.001f);
-
+            float diff = dist - Dist(vector.data->m128_f32, myOnlinePlayersPreferences[i].data->m128_f32);
+            assert(diff < 0.0001f && diff > -0.0001f);
         }
 
         //exclude ourselves and save result
         for(int i = 0, j = 0; i < 21; ++i)
         {
+            //skip the worst neighbor in case our player is off-line (and not in the list of found neighbors)
+            if(!iter->second.myIsAvailable && i == maxDistancePosition)
+            {
+                continue;
+            }
+
+            //skip ourselves
             if(myOnlinePlayersPrefencesToIdsMap[closestPlayersIndexes[i]] != aPlayerId)
             {
                 aPlayerIds[j] = myOnlinePlayersPrefencesToIdsMap[closestPlayersIndexes[i]];
-
                 ++j;
             }
         }
+
+        aOutNumPlayerIds = 20;
 
         return true;
 

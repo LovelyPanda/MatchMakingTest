@@ -1,6 +1,8 @@
 #include "stdafx.h"
 
 #include "MatchMaker.h"
+#include "MatchMaker_old.h"
+#include <algorithm>
 
 class QPTimer 
 {
@@ -94,6 +96,8 @@ float
     return (float) RandomUInt32() / (float) 0xFFFFFFFF; 
 }
 
+CRITICAL_SECTION criticalSection;
+
 namespace 
 {
     void 
@@ -105,6 +109,8 @@ namespace
 
         for(;;)
         {
+            //EnterCriticalSection(&criticalSection);
+
             // add or update a random player to the system 
             float preferenceVector[20]; 
             for(int i = 0; i < 20; i++)
@@ -112,23 +118,48 @@ namespace
 
             unsigned int playerId = RandomUInt32() % 1000000; 
             MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+            MatchMaker_old::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
 
             // players goes on-line / off-line all the time 
             if(RandomFloat32() < 0.05f)
+            {
                 MatchMaker::GetInstance().SetPlayerAvailable(playerId); 
+                MatchMaker_old::GetInstance().SetPlayerAvailable(playerId); 
+            }
             else 
+            {
                 MatchMaker::GetInstance().SetPlayerUnavailable(playerId); 
+                MatchMaker_old::GetInstance().SetPlayerUnavailable(playerId); 
+            }
 
             // match make a player
             unsigned int ids[20]; 
-            int numPlayers; 
+            unsigned int referenceIds[20];
+            int numPlayers;
+            int numReferencePlayers;
 
             {
-                ScopedQPTimer timer("matching time in milliseconds"); 
+                ScopedQPTimer timer("    matching time in milliseconds"); 
                 MatchMaker::GetInstance().MatchMake(playerId, ids, numPlayers);
                 totalMatchmakingTime += timer.myTimer.Read();
             }
 
+            //{
+            //    ScopedQPTimer timer("old matching time in milliseconds"); 
+            //    MatchMaker_old::GetInstance().MatchMake(playerId, referenceIds, numReferencePlayers);
+            //}
+
+            //LeaveCriticalSection(&criticalSection);
+            /*
+            //check correctness of results
+            std::sort(ids, ids + numPlayers);
+            std::sort(referenceIds, referenceIds + numReferencePlayers);
+
+            if(numPlayers != numReferencePlayers || memcmp(ids, referenceIds, sizeof(unsigned int) * numPlayers))
+            {
+                printf("WRONG RESULTS!!!!!\n");
+            }
+            */
             if(++matchmakingNum > 10)
             {
                 printf("average matchmaking time: %f\n", totalMatchmakingTime / 10000.0);
@@ -163,6 +194,7 @@ public:
 int main(int argc, char* argv[])
 {
     MatchMaker::GetInstance(); 
+    MatchMaker_old::GetInstance();
 
     // add 100000 players to the system before starting any request threads 
     for(int i = 0; i < 100000; i++)
@@ -173,7 +205,10 @@ int main(int argc, char* argv[])
 
         unsigned int playerId = RandomUInt32() % 1000000; 
         MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+        MatchMaker_old::GetInstance().AddUpdatePlayer(playerId, preferenceVector);
     }
+
+    InitializeCriticalSection(&criticalSection);
 
     printf("starting worker threads\n"); 
 

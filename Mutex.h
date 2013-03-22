@@ -7,26 +7,22 @@
 #pragma intrinsic(_InterlockedExchange)
 #pragma intrinsic(_InterlockedCompareExchange)
 
-    class Mutex
+    class BadMutex
     {
     public:
 
-        Mutex()
+        BadMutex()
             : mySpinLock(0)
         {
-         //   InitializeCriticalSection(&criticalSection);
         }
 
-        ~Mutex()
+        ~BadMutex()
         {
-           // DeleteCriticalSection(&criticalSection);
         }
 
         void
         Lock() //optimized not to make unnecessary bus locks. Still it is not starvation-free. I would prefer some primitives from OS-SDKs.
         {
-        //    EnterCriticalSection(&criticalSection);
-            
             while(true)
             {
                 //first we check the value in memory (by simple read)
@@ -50,13 +46,39 @@
         void 
         Unlock()
         {
-            //LeaveCriticalSection(&criticalSection);
             if(mySpinLock) //we don't want to lock the bus every time
                 _InterlockedExchange(&mySpinLock, 0);
         }
 
         volatile long mySpinLock; // I am not sure about LONG size on 64-bit platform, that's why I decided to use better (more explicit and cross-platform) data type.
-        //CRITICAL_SECTION criticalSection;
+    };
+
+    class GoodMutex
+    {
+    public:
+        GoodMutex()
+        {
+            InitializeCriticalSection(&criticalSection);
+        }
+
+        ~GoodMutex()
+        {
+            DeleteCriticalSection(&criticalSection);
+        }
+
+        void
+            Lock()
+        {
+            EnterCriticalSection(&criticalSection);
+        }
+
+        void 
+            Unlock()
+        {
+            LeaveCriticalSection(&criticalSection);
+        }
+    private:
+        CRITICAL_SECTION criticalSection;
     };
 
     //perfect place for template (in case we are going to have few different locks which is normally the case)
@@ -96,6 +118,7 @@
         MUTEX*    myLock;
     };
 
+    typedef BadMutex Mutex;
     typedef LockGuard<Mutex> MutexLock;
 
 #endif // MUTEX_H
