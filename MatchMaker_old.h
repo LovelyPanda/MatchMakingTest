@@ -1,9 +1,13 @@
 #ifndef MATCHMAKER_OLD_H
 #define MATCHMAKER_OLD_H
 
+//This is original implementation of match making system.
+//I kept it for correctness checking.
+//No changes were made except for bug fixing.
+
 #define MAX_NUM_PLAYERS (1000000)
 
-#include "Mutex.h"
+#include "Synchonization.h"
 
 class MatchMaker_old
 {

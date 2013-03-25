@@ -1,8 +1,19 @@
 #include "stdafx.h"
 
 #include "MatchMaker.h"
-#include "MatchMaker_old.h"
+
+//define to check results for correctness. Runs old code in parallel and compares results.
+//Note that perfomance in this mode differs significantly because of special synchronization needed to make it work.
+//#define ENABLE_CORRECTNESS_CHECK
+#ifdef ENABLE_CORRECTNESS_CHECK
+	#include "MatchMaker_old.h"
+#endif
+
 #include <algorithm>
+
+#ifdef ENABLE_CORRECTNESS_CHECK
+CRITICAL_SECTION criticalSection;
+#endif
 
 class QPTimer 
 {
@@ -78,7 +89,7 @@ unsigned int
 {
 #ifdef USE_PREDICTABLE_RANDOMNESS
 
-    return (((unsigned int) rand()) << 16) | rand(); // I think this code is wrong. Results have strange ranges.
+    return (((unsigned int) rand()) << 16) | rand();
 
 #else
 
@@ -96,8 +107,6 @@ float
     return (float) RandomUInt32() / (float) 0xFFFFFFFF; 
 }
 
-CRITICAL_SECTION criticalSection;
-
 namespace 
 {
     void 
@@ -109,7 +118,9 @@ namespace
 
         for(;;)
         {
-            //EnterCriticalSection(&criticalSection);
+#ifdef ENABLE_CORRECTNESS_CHECK
+            EnterCriticalSection(&criticalSection);
+#endif
 
             // add or update a random player to the system 
             float preferenceVector[20]; 
@@ -118,25 +129,32 @@ namespace
 
             unsigned int playerId = RandomUInt32() % 1000000; 
             MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+
+#ifdef ENABLE_CORRECTNESS_CHECK
             MatchMaker_old::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+#endif
 
             // players goes on-line / off-line all the time 
             if(RandomFloat32() < 0.05f)
             {
                 MatchMaker::GetInstance().SetPlayerAvailable(playerId); 
+
+#ifdef ENABLE_CORRECTNESS_CHECK
                 MatchMaker_old::GetInstance().SetPlayerAvailable(playerId); 
+#endif
             }
             else 
             {
                 MatchMaker::GetInstance().SetPlayerUnavailable(playerId); 
+
+#ifdef ENABLE_CORRECTNESS_CHECK
                 MatchMaker_old::GetInstance().SetPlayerUnavailable(playerId); 
+#endif
             }
 
             // match make a player
             unsigned int ids[20]; 
-            unsigned int referenceIds[20];
             int numPlayers;
-            int numReferencePlayers;
 
             {
                 ScopedQPTimer timer("    matching time in milliseconds"); 
@@ -144,22 +162,28 @@ namespace
                 totalMatchmakingTime += timer.myTimer.Read();
             }
 
-            //{
-            //    ScopedQPTimer timer("old matching time in milliseconds"); 
-            //    MatchMaker_old::GetInstance().MatchMake(playerId, referenceIds, numReferencePlayers);
-            //}
+#ifdef ENABLE_CORRECTNESS_CHECK
+			int numReferencePlayers;
+			unsigned int referenceIds[20];
 
-            //LeaveCriticalSection(&criticalSection);
-            /*
+            {
+                ScopedQPTimer timer("old matching time in milliseconds"); 
+                MatchMaker_old::GetInstance().MatchMake(playerId, referenceIds, numReferencePlayers);
+            }
+
+            LeaveCriticalSection(&criticalSection);
+            
             //check correctness of results
             std::sort(ids, ids + numPlayers);
             std::sort(referenceIds, referenceIds + numReferencePlayers);
 
             if(numPlayers != numReferencePlayers || memcmp(ids, referenceIds, sizeof(unsigned int) * numPlayers))
             {
-                printf("WRONG RESULTS!!!!!\n");
+                printf("WRONG RESULTS!\n");
             }
-            */
+            
+#endif //CORRECTNESS_CHECK
+
             if(++matchmakingNum > 10)
             {
                 printf("average matchmaking time: %f\n", totalMatchmakingTime / 10000.0);
@@ -194,7 +218,10 @@ public:
 int main(int argc, char* argv[])
 {
     MatchMaker::GetInstance(); 
+
+#ifdef ENABLE_CORRECTNESS_CHECK
     MatchMaker_old::GetInstance();
+#endif
 
     // add 100000 players to the system before starting any request threads 
     for(int i = 0; i < 100000; i++)
@@ -205,10 +232,14 @@ int main(int argc, char* argv[])
 
         unsigned int playerId = RandomUInt32() % 1000000; 
         MatchMaker::GetInstance().AddUpdatePlayer(playerId, preferenceVector); 
+#ifdef ENABLE_CORRECTNESS_CHECK
         MatchMaker_old::GetInstance().AddUpdatePlayer(playerId, preferenceVector);
+#endif
     }
 
+#ifdef ENABLE_CORRECTNESS_CHECK
     InitializeCriticalSection(&criticalSection);
+#endif
 
     printf("starting worker threads\n"); 
 
@@ -216,6 +247,10 @@ int main(int argc, char* argv[])
         (new RequestThread())->Start(); 
 
     Sleep(-1); 
+
+#ifdef ENABLE_CORRECTNESS_CHECK
+	DeleteCriticalSection(&criticalSection); //never called :)
+#endif
 
     return 0;
 }

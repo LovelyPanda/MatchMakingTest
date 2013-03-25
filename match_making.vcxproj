@@ -98,7 +98,7 @@
     <ClInclude Include="KDPartitioningTree.h" />
     <ClInclude Include="MatchMaker.h" />
     <ClInclude Include="MatchMaker_old.h" />
-    <ClInclude Include="Mutex.h" />
+    <ClInclude Include="Synchonization.h" />
     <ClInclude Include="SimplePool.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />

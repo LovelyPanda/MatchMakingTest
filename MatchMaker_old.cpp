@@ -183,9 +183,10 @@
 
 		for(unsigned int i = 0; i < myNumPlayers; i++)
 		{
-            //BUG FIX
+            //BUG FIX: we don't want to return off-line players and we don't want to return our own player
             if(!myPlayers[i]->myIsAvailable || myPlayers[i]->myPlayerId == aPlayerId)
                 continue;
+			//END BUG FIX
 
 			if(matchCount < 20)
 			{

@@ -3,17 +3,18 @@
 #include "MatchMaker.h"
 
 #include <algorithm>
-//#include <math.h>
-
+#include <cfloat>
 #include <mmintrin.h>
-#include <cassert>
+
+#define MATCHMAKE_PLAYERS_NUM 20
 
     MatchMaker* MatchMaker::ourInstance = 0;
 
     MatchMaker::MatchMaker()
         : myOnlinePlayersNum(0),
-          myPlayerMap(1000000) ///!!???
+          myPlayerMap(MAX_NUM_PLAYERS) // I can't think about any other (better) number of buckets
     {
+		myReadersNum = myWritersNum = 0;
     }
 
     MatchMaker::~MatchMaker()
@@ -39,14 +40,16 @@
         unsigned int    aPlayerId, 
         float           aPreferenceVector[20])
     {
-        MutexLock lock(myLock); 
+		WriterCondition(&myConditionData, &myReadersNum, &myWritersNum);
 
         PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
 
         if(iter == myPlayerMap.end())
         {
             if(myPlayerMap.size() >= MAX_NUM_PLAYERS)
+			{
                 return false;
+			}
 
             //add new
             PlayerData newPlayer;
@@ -55,6 +58,9 @@
             memcpy(newPlayer.myPreferences, aPreferenceVector, sizeof(newPlayer.myPreferences));
 
             myPlayerMap[aPlayerId] = newPlayer;
+
+			if(myPlayerMap.size() % 100 == 0)
+				printf("num players in system %u\n", myPlayerMap.size()); 
 
             return true;
         }
@@ -70,39 +76,6 @@
             memcpy(myOnlinePlayersPreferences[player.myOnlinePosition].data, aPreferenceVector, sizeof(player.myPreferences));
         }
 
-        /*
-        for(unsigned int i = 0; i < myNumPlayers; i++)
-        {
-            if(myPlayers[i]->myPlayerId == aPlayerId)
-            {
-                Player* t = new Player(); 
-                t->myPlayerId = myPlayers[i]->myPlayerId; 
-                t->myIsAvailable = myPlayers[i]->myIsAvailable; 
-                for(int j = 0; j < 20; j++)
-                    t->myPreferenceVector[j] = aPreferenceVector[j]; 
-
-                delete myPlayers[i]; 
-                myPlayers[i] = t; 
-
-                return true; 
-            }
-        }
-
-        if(myNumPlayers == MAX_NUM_PLAYERS)
-            return false; 
-
-        myPlayers[myNumPlayers] = new Player(); 
-        myPlayers[myNumPlayers]->myPlayerId = aPlayerId; 
-        for(int i = 0; i < 20; i++)
-            myPlayers[myNumPlayers]->myPreferenceVector[i] = aPreferenceVector[i]; 
-        myPlayers[myNumPlayers]->myIsAvailable = false; 
-
-        myNumPlayers++; 
-
-        if(myNumPlayers % 100 == 0)
-            printf("num players in system %u\n", myNumPlayers); 
-            */
-
         return true;
     }
 
@@ -110,7 +83,7 @@
     MatchMaker::SetPlayerAvailable(
         unsigned int    aPlayerId)
     {
-        MutexLock lock(myLock); 
+		WriterCondition(&myConditionData, &myReadersNum, &myWritersNum);
 
         //find player
         PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
@@ -123,14 +96,18 @@
         PlayerData& player = iter->second;
 
         //already marked as on-line
-        if(player.myIsAvailable) 
+        if(player.myIsAvailable)
+		{
             return true;
+		}
 
         //add player preferences to array of on-line players
         unsigned int newOnlinePosition = myOnlinePlayersNum;
 
-        if(myOnlinePlayersNum > MAX_ONLINE_PLAYERS)
+        if(myOnlinePlayersNum >= MAX_ONLINE_PLAYERS)
+		{
             return false;
+		}
 
         //copy preferences
         memcpy(myOnlinePlayersPreferences[newOnlinePosition].data, player.myPreferences, sizeof(player.myPreferences));
@@ -143,36 +120,13 @@
         player.myIsAvailable = true;
 
         return true;
-
-        /*
-        for(unsigned int i = 0; i < myNumPlayers; i++)
-        {
-            if(myPlayers[i]->myPlayerId == aPlayerId)
-            {
-                Player* t = new Player(); 
-                t->myPlayerId = myPlayers[i]->myPlayerId; 
-                t->myIsAvailable = true; 
-                for(int j = 0; j < 20; j++)
-                    t->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
-
-                delete myPlayers[i]; 
-                myPlayers[i] = t; 
-
-                return true; 
-            }
-        }
-
-        return false; 
-        */
-
-      return true;
     }
 
     bool
     MatchMaker::SetPlayerUnavailable(
         unsigned int    aPlayerId)
     {
-        MutexLock lock(myLock); 
+		WriterCondition(&myConditionData, &myReadersNum, &myWritersNum);
 
         //find player
         PlayerHashMap::iterator iter = myPlayerMap.find(aPlayerId);
@@ -186,7 +140,9 @@
 
         //already marked as off-line
         if(!player.myIsAvailable)
+		{
             return true;
+		}
 
         //remove player preferences from array of on-line players
         unsigned int onlinePosition = player.myOnlinePosition;
@@ -211,61 +167,10 @@
         player.myIsAvailable = false;
 
         return true;
-
-        /*
-        for(unsigned int i = 0; i < myNumPlayers; i++)
-        {
-            if(myPlayers[i]->myPlayerId == aPlayerId)
-            {
-                Player* t = new Player(); 
-                t->myPlayerId = myPlayers[i]->myPlayerId; 
-                t->myIsAvailable = false; 
-                for(int j = 0; j < 20; j++)
-                    t->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
-
-                delete myPlayers[i]; 
-                myPlayers[i] = t; 
-
-                return true; 
-            }
-        }
-        
-        return false; 
-        */
     }
 
-    float 
-    Dist(
-        float    aA[20], 
-        float    aB[20])
-    {
-        float dist = 0.0f; 
-        for(int i = 0; i < 20; i++)
-            dist += (aA[i] - aB[i]) * (aA[i] - aB[i]); 
-        return dist;
-        //return sqrt(dist); 
-    }
-
-
-    class Matched
-    {
-    public:
-
-        float            myDist; 
-        unsigned int    myId; 
-    };
-
-    static int 
-    MatchComp(
-        Matched*    aA, 
-        Matched*    aB)
-    {
-        if(aA->myDist < aB->myDist)
-            return 1; 
-
-        return 0; 
-    }
-
+	//SSE-accelerated function to compute square distance between two 20-D points
+	//contains Microsoft-specific code
     static inline float SquareDistance(__m128 vec1[5], __m128 vec2[5])
     {
         __m128 tempVec[5];
@@ -298,13 +203,24 @@
                tempVec[0].m128_f32[2] + tempVec[0].m128_f32[3];
     }
 
+	struct Neighbor
+	{
+		bool operator<(const Neighbor& rhv) const
+		{
+			return (distance < rhv.distance);
+		}
+
+		float distance;
+		unsigned int arrayIndex;
+	};
+
     bool
     MatchMaker::MatchMake(
         unsigned int    aPlayerId, 
         unsigned int    aPlayerIds[20], 
         int&            aOutNumPlayerIds)
     {
-        MutexLock lock(myLock); 
+	    ReaderCondition(&myConditionData, &myReadersNum, &myWritersNum);
 
         aOutNumPlayerIds = 0;
 
@@ -316,14 +232,18 @@
             return false; //no such player
         }
 
+		//the number of on-line users except for our user
         unsigned int otherOnlineUsersNum = (iter->second.myIsAvailable) ? myOnlinePlayersNum - 1 : myOnlinePlayersNum;
 
-        //if we don't have enough on-line players, just return available
-        if(otherOnlineUsersNum <= 20)
-        {
-            if(otherOnlineUsersNum == 0)
-                return false;
+	    if(otherOnlineUsersNum == 0)
+		{
+			return false;
+		}
 
+        //if we don't have enough on-line players, just return available, no need to calculate anything
+        if(otherOnlineUsersNum <= MATCHMAKE_PLAYERS_NUM)
+        {
+			//exclude our player and copy result
             for(unsigned int i = 0, j = 0; i < myOnlinePlayersNum; ++i)
             {
                 if(myOnlinePlayersPrefencesToIdsMap[i] != aPlayerId)
@@ -333,6 +253,7 @@
             }
 
             aOutNumPlayerIds = otherOnlineUsersNum;
+
             return true;
         }
 
@@ -341,16 +262,18 @@
         Vector20f vector;
         memcpy(vector.data, player.myPreferences, sizeof(player.myPreferences));
 
-        //among the other points there will be ourselves that's why we have 21 entries
-        float shortestDistances[21] = { 100000.0f };
-        float maxDistance = 1000000.0f;
-        unsigned int maxDistancePosition = 0;
-        unsigned int closestPlayersIndexes[21] = { 0 };
+        //to decrease the number of branches, I am going to search for 21 nearest neighbors
+		//one of them would be our player, we will exclude him later
 
-        for(unsigned int i = 0; i < 21; ++i)
+		Neighbor neighbors[MATCHMAKE_PLAYERS_NUM + 1];
+		        
+		//fill array with large distances
+		for(unsigned int i = 0; i < MATCHMAKE_PLAYERS_NUM + 1; ++i)
         {
-            shortestDistances[i] = 1000000.0f;
+            neighbors[i].distance = FLT_MAX;
         }
+
+        float maxDistance = FLT_MAX;
 
         for(unsigned int i = 0; i < myOnlinePlayersNum; ++i)
         {
@@ -358,123 +281,35 @@
             
             if(dist < maxDistance)
             {
-                shortestDistances[maxDistancePosition] = dist;
-                closestPlayersIndexes[maxDistancePosition] = i;
+				//last one is the worst neighbor, owerwrite him
+                neighbors[MATCHMAKE_PLAYERS_NUM].distance = dist;
+				neighbors[MATCHMAKE_PLAYERS_NUM].arrayIndex = i;
 
-                //find new max distance
-                float* maxElementPtr = std::max_element(shortestDistances, shortestDistances + 21);
-                maxDistance = *maxElementPtr;
-                maxDistancePosition = maxElementPtr - shortestDistances;
+				//resort the array
+				std::sort(neighbors, neighbors + MATCHMAKE_PLAYERS_NUM + 1);
             }
-
-            float diff = dist - Dist(vector.data->m128_f32, myOnlinePlayersPreferences[i].data->m128_f32);
-            assert(diff < 0.0001f && diff > -0.0001f);
         }
 
         //exclude ourselves and save result
-        for(int i = 0, j = 0; i < 21; ++i)
+        for(int i = 0, j = 0; i < MATCHMAKE_PLAYERS_NUM + 1; ++i)
         {
-            //skip the worst neighbor in case our player is off-line (and not in the list of found neighbors)
-            if(!iter->second.myIsAvailable && i == maxDistancePosition)
-            {
-                continue;
-            }
+			PlayerId neighborId = myOnlinePlayersPrefencesToIdsMap[neighbors[i].arrayIndex];
 
             //skip ourselves
-            if(myOnlinePlayersPrefencesToIdsMap[closestPlayersIndexes[i]] != aPlayerId)
+			if(neighborId != aPlayerId)
             {
-                aPlayerIds[j] = myOnlinePlayersPrefencesToIdsMap[closestPlayersIndexes[i]];
+                aPlayerIds[j] = neighborId;
                 ++j;
             }
+
+			//we don't need the 21-st one in case our player is off-line
+			if(!iter->second.myIsAvailable && i == MATCHMAKE_PLAYERS_NUM - 1)
+            {
+                break;
+            }
         }
 
-        aOutNumPlayerIds = 20;
+        aOutNumPlayerIds = MATCHMAKE_PLAYERS_NUM;
 
         return true;
-
-        /*
-        Player* playerToMatch = NULL; 
-        for(unsigned int i = 0; i < myNumPlayers; i++)
-        {
-            if(myPlayers[i]->myPlayerId == aPlayerId)
-            {
-                playerToMatch                    = new Player();
-                playerToMatch->myPlayerId        = myPlayers[i]->myPlayerId;
-                playerToMatch->myIsAvailable    = myPlayers[i]->myIsAvailable; 
-                for(int j = 0; j < 20; j++)
-                    playerToMatch->myPreferenceVector[j] = myPlayers[i]->myPreferenceVector[j]; 
-
-                break; 
-            }
-        }
-
-        if(!playerToMatch)
-            return false; 
-
-        Matched** matched = new Matched*[20]; 
-        for(unsigned int i = 0; i < 20; i++)
-        {
-            matched[i]            = new Matched(); 
-            matched[i]->myDist    = -1.0f; 
-            matched[i]->myId    = -1; 
-        }
-
-        int matchCount = 0; 
-
-        for(unsigned int i = 0; i < myNumPlayers; i++)
-        {
-            if(matchCount < 20)
-            {
-                matched[matchCount]->myId    = myPlayers[i]->myPlayerId; 
-                matched[matchCount]->myDist    = Dist(myPlayers[i]->myPreferenceVector, playerToMatch->myPreferenceVector);
-                matchCount++; 
-
-                using std::sort; 
-                sort(matched, matched + matchCount, MatchComp);
-
-                continue; 
-            }
-
-            float dist = Dist(playerToMatch->myPreferenceVector, myPlayers[i]->myPreferenceVector); 
-
-            int index = -1; 
-            for(int j = 19; j >= 0; j--)
-            {
-                if(matched[j]->myDist < dist)
-                    break; 
-
-                index = j; 
-            }
-
-            if(index == -1)
-                continue; 
-
-            if(!myPlayers[i]->myIsAvailable)
-                continue; 
-
-            for(int j = 19; j > index; j--)
-            {
-                matched[j]->myDist    = matched[j - 1]->myDist; 
-                matched[j]->myId    = matched[j - 1]->myId; 
-            }
-
-            matched[index]->myDist    = dist;
-            matched[index]->myId    = myPlayers[i]->myPlayerId; 
-
-            for(int j = 0; j < 20; j++)
-                aPlayerIds[j] = matched[j]->myId; 
-        }
-
-        aOutNumPlayerIds = matchCount; 
-        for(unsigned int j = 0; j < matchCount; j++)
-            aPlayerIds[j] = matched[j]->myId; 
-
-        for(unsigned int i = 0; i < 20; i++)
-            delete matched[i]; 
-        delete [] matched; 
-
-        delete playerToMatch; 
-
-        return true; 
-        */
     }
